@@ -4,6 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
 const NAV = [
+  { href: "/dashboard", label: "Dashboard", icon: DashboardIcon },
   { href: "/keys",    label: "Keys",    icon: KeyIcon },
   { href: "/routing", label: "Routing", icon: RouteIcon },
   { href: "/logs",    label: "Logs",    icon: LogIcon },
@@ -109,6 +110,17 @@ function ExportIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
       <path d="M12 2v13M9 12l3 3 3-3" />
       <path d="M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2" />
+    </svg>
+  );
+}
+
+function DashboardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+      <rect x="3" y="3" width="7" height="9" rx="1" />
+      <rect x="14" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="12" width="7" height="9" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
     </svg>
   );
 }
