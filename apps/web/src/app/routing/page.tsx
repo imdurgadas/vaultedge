@@ -25,7 +25,14 @@ export default function RoutingPage() {
     setAvailableProviders([...new Set(keys.map((k) => k.provider))]);
   }, []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    const handleStorage = () => {
+      reload();
+    };
+    handleStorage();
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [reload]);
 
   const handleAdd = async () => {
     if (!newModel.trim()) return;

@@ -640,6 +640,7 @@ async function main(): Promise<void> {
     console.log(`   Debug: ${DEBUG}\n`);
     console.log(`   Set in your app: OPENAI_BASE_URL=http://${HOST}:${PORT}/v1`);
     console.log(`                    OPENAI_API_KEY=${SYSTEM_KEY}\n`);
+    console.log(`   Web Dashboard:   http://localhost:3000/keys?key=${SYSTEM_KEY}\n`);
   });
 
   process.on("SIGTERM", () => {

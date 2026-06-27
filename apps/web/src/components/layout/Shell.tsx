@@ -1,4 +1,5 @@
 "use client";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -12,6 +13,32 @@ const NAV = [
 export default function Shell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const key = params.get("key") || params.get("token");
+      const host = params.get("host") || params.get("proxy_host");
+
+      let updated = false;
+      if (key) {
+        localStorage.setItem("ve_proxy_key", key);
+        updated = true;
+      }
+      if (host) {
+        localStorage.setItem("ve_proxy_host", host);
+        updated = true;
+      }
+
+      if (updated) {
+        // Clean up URL search params without triggering full reload
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+        // Dispatch custom storage event so other components reload
+        window.dispatchEvent(new Event("storage"));
+      }
+    }
+  }, []);
 
   return (
     <div className="app-shell">

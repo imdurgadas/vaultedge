@@ -69,16 +69,20 @@ export default function KeysPage() {
   const [proxyKey, setProxyKey] = useState("");
   const [showSettings, setShowSettings] = useState(false);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      setProxyHost(localStorage.getItem("ve_proxy_host") || "http://localhost:8787");
-      setProxyKey(localStorage.getItem("ve_proxy_key") || "");
-    }
-  }, []);
-
   const reload = useCallback(async () => setKeys(await getKeys()), []);
 
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    const handleStorage = () => {
+      if (typeof window !== "undefined") {
+        setProxyHost(localStorage.getItem("ve_proxy_host") || "http://localhost:8787");
+        setProxyKey(localStorage.getItem("ve_proxy_key") || "");
+        reload();
+      }
+    };
+    handleStorage();
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [reload]);
 
   const filtered = keys.filter((k) =>
     k.provider.toLowerCase().includes(search.toLowerCase())
