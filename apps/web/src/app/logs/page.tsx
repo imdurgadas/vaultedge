@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import Shell from "@/components/layout/Shell";
 import { ToastContainer, toast } from "@/components/ui/Toast";
-import { getLogs, clearLogs, seedDemoLogs, type RoutingLog } from "@/lib/store";
+import type { RoutingLog } from "@/lib/store";
 
 function StatusBadge({ status }: { status: RoutingLog["status"] }) {
   if (status === "success") return <span className="badge badge-green">✓ Success</span>;
@@ -14,9 +14,29 @@ export default function LogsPage() {
   const [logs, setLogs] = useState<RoutingLog[]>([]);
   const [filter, setFilter] = useState<"all" | "success" | "fallback" | "error">("all");
 
+  const loadLogs = async () => {
+    try {
+      const host = localStorage.getItem("ve_proxy_host") || "http://localhost:8787";
+      const sysKey = localStorage.getItem("ve_proxy_key") || "";
+
+      const res = await fetch(`${host}/v1/logs`, {
+        headers: {
+          "Authorization": `Bearer ${sysKey}`,
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setLogs(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch proxy logs:", err);
+    }
+  };
+
   useEffect(() => {
-    seedDemoLogs();
-    setLogs(getLogs());
+    loadLogs();
+    const interval = setInterval(loadLogs, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const filtered = filter === "all" ? logs : logs.filter((l) => l.status === filter);
@@ -28,9 +48,8 @@ export default function LogsPage() {
   };
 
   const handleClear = () => {
-    clearLogs();
     setLogs([]);
-    toast("Routing logs cleared", "info");
+    toast("Logs view cleared", "info");
   };
 
   return (

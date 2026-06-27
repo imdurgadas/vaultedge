@@ -44,6 +44,14 @@ export interface RouterConfig {
   providersFile?: string;
   circuitBreaker?: CircuitBreaker;
   quotaMap?: QuotaMap;
+  onAttempt?: (event: {
+    provider: string;
+    model: string;
+    status: "success" | "error";
+    latencyMs: number;
+    tokens?: number;
+    error?: string;
+  }) => void;
 }
 
 // ─── Anthropic Format Translation ─────────────────────────────────────────────
@@ -365,6 +373,7 @@ export async function routeRequest(
 
   for (let i = 0; i < maxAttempts; i++) {
     const { provider, model, key } = attempts[i];
+    const startTime = Date.now();
 
     try {
       const result = await sendToProvider(provider, key, request, model, {
@@ -373,8 +382,24 @@ export async function routeRequest(
         quotaMap: qm,
       });
       cb.recordSuccess(key);
+
+      const latencyMs = Date.now() - startTime;
+      let tokens: number | undefined = undefined;
+      if (result && typeof result === "object" && "usage" in result && (result as any).usage) {
+        tokens = (result as any).usage.total_tokens;
+      }
+
+      config.onAttempt?.({
+        provider: provider.name,
+        model,
+        status: "success",
+        latencyMs,
+        tokens,
+      });
+
       return result;
     } catch (err) {
+      const latencyMs = Date.now() - startTime;
       const provErr =
         err instanceof ProviderError
           ? err
@@ -385,6 +410,14 @@ export async function routeRequest(
 
       errors.push(provErr);
       cb.recordFailure(key, provErr.statusCode === 401);
+
+      config.onAttempt?.({
+        provider: provider.name,
+        model,
+        status: "error",
+        latencyMs,
+        error: provErr.message,
+      });
 
       if (config.debug) {
         console.error(

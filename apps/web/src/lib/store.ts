@@ -128,31 +128,4 @@ export function moveRule(id: string, direction: "up" | "down"): void {
   saveRules(updated.map((r, i) => ({ ...r, priority: i + 1 })));
 }
 
-// ─── Logs ─────────────────────────────────────────────────────────────────────
 
-export function getLogs(): RoutingLog[] {
-  if (typeof window === "undefined") return [];
-  try { return JSON.parse(localStorage.getItem(LOGS_KEY) ?? "[]"); } catch { return []; }
-}
-
-export function clearLogs(): void {
-  localStorage.removeItem(LOGS_KEY);
-}
-
-// Seed demo logs if empty
-export function seedDemoLogs(): void {
-  if (getLogs().length > 0) return;
-  const providers = ["OpenAI", "Groq", "Anthropic", "Gemini", "Mistral"];
-  const models = ["gpt-4o", "llama-3.3-70b-versatile", "claude-3-5-sonnet-latest", "gemini-1.5-pro", "mistral-large"];
-  const statuses: RoutingLog["status"][] = ["success", "success", "success", "fallback", "error"];
-  const logs: RoutingLog[] = Array.from({ length: 18 }, (_, i) => ({
-    id: crypto.randomUUID(),
-    timestamp: Math.floor(Date.now() / 1000) - i * 240,
-    model: models[i % models.length],
-    provider: providers[i % providers.length],
-    status: statuses[i % statuses.length],
-    latencyMs: 300 + Math.floor(Math.random() * 2200),
-    tokens: 150 + Math.floor(Math.random() * 1800),
-  }));
-  localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
-}

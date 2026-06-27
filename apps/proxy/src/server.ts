@@ -60,6 +60,30 @@ let vaultEntries: VaultEntry[] = [];
 const circuitBreaker = new CircuitBreaker();
 const quotaMap = new QuotaMap();
 
+interface RequestLog {
+  id: string;
+  timestamp: number;
+  model: string;
+  provider: string;
+  status: "success" | "error" | "fallback";
+  latencyMs: number;
+  tokens?: number;
+}
+
+const requestLogs: RequestLog[] = [];
+
+function addRequestLog(log: Omit<RequestLog, "id" | "timestamp">) {
+  const newLog: RequestLog = {
+    ...log,
+    id: randomBytes(16).toString("hex"),
+    timestamp: Math.floor(Date.now() / 1000),
+  };
+  requestLogs.push(newLog);
+  if (requestLogs.length > 200) {
+    requestLogs.shift();
+  }
+}
+
 // ─── Vault Loader ─────────────────────────────────────────────────────────────
 
 async function loadVault(): Promise<void> {
@@ -135,6 +159,7 @@ async function handleChatCompletions(
   }
 
   try {
+    let attemptCount = 0;
     const result = await routeRequest(body, vaultEntries, {
       timeout: TIMEOUT,
       maxRetries: MAX_RETRIES,
@@ -142,6 +167,18 @@ async function handleChatCompletions(
       circuitBreaker,
       quotaMap,
       providersFile: PROVIDERS_FILE,
+      onAttempt: (event) => {
+        attemptCount++;
+        addRequestLog({
+          model: event.model,
+          provider: event.provider,
+          status: event.status === "success"
+            ? (attemptCount > 1 ? "fallback" : "success")
+            : "error",
+          latencyMs: event.latencyMs,
+          tokens: event.tokens,
+        });
+      },
     });
 
     // ─── Streaming ────────────────────────────────────────────────────────────
@@ -312,6 +349,13 @@ async function handleValidateKey(req: IncomingMessage, res: ServerResponse): Pro
   }
 }
 
+function handleGetLogs(req: IncomingMessage, res: ServerResponse): void {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+  sendJSON(res, 200, requestLogs);
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -344,6 +388,9 @@ async function handler(req: IncomingMessage, res: ServerResponse): Promise<void>
   }
   if (req.method === "GET" && url === "/status") {
     return handleStatus(req, res);
+  }
+  if (req.method === "GET" && url === "/v1/logs") {
+    return handleGetLogs(req, res);
   }
 
   sendError(res, 404, `Route ${req.method} ${url} not found.`, "NOT_FOUND");
