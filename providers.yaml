@@ -1,0 +1,150 @@
+# VaultEdge Provider Registry
+# Add a new provider here — no code changes needed!
+# Fields:
+#   name:         Unique provider identifier (PascalCase)
+#   baseUrl:      Chat completions endpoint
+#   authScheme:   "bearer" | "x-api-key" | "query"  (how to send the key)
+#   modelsUrl:    Endpoint for listing models (optional)
+#   modelPrefixes: List of model name prefixes that auto-route to this provider
+#   fallbackOrder: Priority order when this provider fails (lower = higher priority)
+#   staticModels:  Hardcoded model list when modelsUrl is unavailable
+#   headers:      Extra static headers to include in every request
+
+providers:
+  - name: OpenAI
+    baseUrl: https://api.openai.com/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.openai.com/v1/models
+    modelPrefixes: ["gpt-", "o1", "o3", "o4", "davinci", "text-"]
+    fallbackOrder: 1
+
+  - name: Groq
+    baseUrl: https://api.groq.com/openai/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.groq.com/openai/v1/models
+    modelPrefixes: ["llama", "groq", "mixtral", "gemma", "whisper"]
+    fallbackOrder: 2
+
+  - name: Anthropic
+    baseUrl: https://api.anthropic.com/v1/messages
+    authScheme: x-api-key
+    modelPrefixes: ["claude"]
+    fallbackOrder: 3
+    staticModels:
+      - claude-3-5-sonnet-latest
+      - claude-3-5-haiku-latest
+      - claude-3-opus-latest
+      - claude-3-haiku-20240307
+    headers:
+      anthropic-version: "2023-06-01"
+
+  - name: Gemini
+    baseUrl: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+    authScheme: bearer
+    modelsUrl: https://generativelanguage.googleapis.com/v1beta/openai/models
+    modelPrefixes: ["gemini"]
+    fallbackOrder: 4
+
+  - name: Mistral
+    baseUrl: https://api.mistral.ai/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.mistral.ai/v1/models
+    modelPrefixes: ["mistral", "codestral", "pixtral"]
+    fallbackOrder: 5
+
+  - name: xAI
+    baseUrl: https://api.x.ai/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.x.ai/v1/models
+    modelPrefixes: ["grok"]
+    fallbackOrder: 6
+
+  - name: DeepSeek
+    baseUrl: https://api.deepseek.com/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.deepseek.com/models
+    modelPrefixes: ["deepseek"]
+    fallbackOrder: 7
+
+  - name: OpenRouter
+    baseUrl: https://openrouter.ai/api/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://openrouter.ai/api/v1/models
+    modelPrefixes: []
+    fallbackOrder: 8
+    headers:
+      HTTP-Referer: https://vaultedge.dev
+      X-Title: VaultEdge
+
+  - name: Cohere
+    baseUrl: https://api.cohere.ai/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.cohere.ai/v1/models
+    modelPrefixes: ["command", "cohere"]
+    fallbackOrder: 9
+
+  - name: Cerebras
+    baseUrl: https://api.cerebras.ai/v1/chat/completions
+    authScheme: bearer
+    modelPrefixes: ["cerebras"]
+    fallbackOrder: 10
+    staticModels:
+      - llama3.1-8b
+      - llama-3.3-70b
+
+  - name: Sambanova
+    baseUrl: https://api.sambanova.ai/v1/chat/completions
+    authScheme: bearer
+    modelPrefixes: ["meta-llama", "sambanova", "qwen", "deepseek-r1-distill"]
+    fallbackOrder: 11
+    staticModels:
+      - Meta-Llama-3.1-8B-Instruct
+      - Meta-Llama-3.1-70B-Instruct
+      - Meta-Llama-3.3-70B-Instruct
+      - Qwen2.5-72B-Instruct
+      - DeepSeek-R1-Distill-Llama-70B
+
+  - name: Cloudflare
+    baseUrl: https://api.cloudflare.com/client/v4/accounts/default/ai/v1/chat/completions
+    authScheme: bearer
+    modelPrefixes: ["@cf/"]
+    fallbackOrder: 12
+    staticModels:
+      - "@cf/meta/llama-3.1-8b-instruct"
+      - "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+      - "@cf/qwen/qwen1.5-14b-chat-awq"
+
+  - name: Github
+    baseUrl: https://models.inference.ai.azure.com/chat/completions
+    authScheme: bearer
+    modelPrefixes: []
+    fallbackOrder: 13
+    staticModels:
+      - gpt-4o
+      - gpt-4o-mini
+      - Phi-3.5-mini-instruct
+      - Llama-3.3-70B-Instruct
+
+  - name: Nvidia
+    baseUrl: https://integrate.api.nvidia.com/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://integrate.api.nvidia.com/v1/models
+    modelPrefixes: ["nvidia", "nim", "nv-"]
+    fallbackOrder: 14
+
+  - name: Together
+    baseUrl: https://api.together.xyz/v1/chat/completions
+    authScheme: bearer
+    modelsUrl: https://api.together.xyz/v1/models
+    modelPrefixes: ["together"]
+    fallbackOrder: 15
+
+  - name: Perplexity
+    baseUrl: https://api.perplexity.ai/chat/completions
+    authScheme: bearer
+    modelPrefixes: ["sonar", "pplx-"]
+    fallbackOrder: 16
+    staticModels:
+      - sonar
+      - sonar-pro
+      - sonar-reasoning

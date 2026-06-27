@@ -1,0 +1,19 @@
+{
+  "name": "vaultedge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "VaultEdge — Zero-trust AI key manager & proxy",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:proxy": "npm run dev --workspace=apps/proxy",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}

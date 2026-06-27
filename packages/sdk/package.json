@@ -1,0 +1,29 @@
+{
+  "name": "vaultedge-sdk",
+  "version": "1.0.0",
+  "description": "VaultEdge SDK — zero-trust AI key manager for serverless & edge",
+  "keywords": ["ai", "llm", "api-key", "vault", "openai", "proxy", "edge", "serverless"],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@vaultedge/core": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.5"
+  }
+}

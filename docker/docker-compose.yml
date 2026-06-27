@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  proxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: vaultedge-proxy:latest
+    container_name: vaultedge-proxy
+    ports:
+      - "8787:8787"
+    environment:
+      # Required: paste your exported vault string
+      VAULTEDGE_VAULT: "${VAULTEDGE_VAULT}"
+      # Required: your master password
+      VAULTEDGE_PASSWORD: "${VAULTEDGE_PASSWORD}"
+      # Optional: set a fixed system key (auto-generated if omitted)
+      VAULTEDGE_SYSTEM_KEY: "${VAULTEDGE_SYSTEM_KEY:-}"
+      # Optional
+      VAULTEDGE_PORT: "8787"
+      VAULTEDGE_HOST: "0.0.0.0"
+      VAULTEDGE_DEBUG: "false"
+      VAULTEDGE_MAX_RETRIES: "3"
+      VAULTEDGE_TIMEOUT: "60000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
