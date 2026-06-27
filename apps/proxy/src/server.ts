@@ -36,6 +36,7 @@ import {
   VaultEdgeError,
   NoProviderError,
   AllProvidersFailedError,
+  validateProviderKey,
 } from "@vaultedge/core";
 import type { VaultEntry, ChatCompletionRequest } from "@vaultedge/core";
 
@@ -282,6 +283,35 @@ function handleStatus(_req: IncomingMessage, res: ServerResponse): void {
   });
 }
 
+async function handleValidateKey(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+
+  let body: { provider: string; key: string };
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw) as { provider: string; key: string };
+  } catch {
+    return sendError(res, 400, "Invalid JSON body.", "BAD_REQUEST");
+  }
+
+  if (!body.provider || !body.key) {
+    return sendError(res, 400, "Missing required fields: provider, key.", "BAD_REQUEST");
+  }
+
+  try {
+    const result = await validateProviderKey(body.provider, body.key);
+    sendJSON(res, 200, result);
+  } catch (err) {
+    return sendError(
+      res,
+      500,
+      `Key validation failed internally: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -299,6 +329,9 @@ async function handler(req: IncomingMessage, res: ServerResponse): Promise<void>
 
   if (req.method === "POST" && url.startsWith("/v1/chat/completions")) {
     return handleChatCompletions(req, res);
+  }
+  if (req.method === "POST" && url.startsWith("/v1/keys/validate")) {
+    return handleValidateKey(req, res);
   }
   if (req.method === "POST" && url.startsWith("/v1/messages")) {
     return handleAnthropicMessages(req, res);

@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Shell from "@/components/layout/Shell";
 import { ToastContainer, toast } from "@/components/ui/Toast";
 import {
-  getKeys, addKey, removeKey, setKeyValid,
+  getKeys, addKey, removeKey, setKeyValid, importVaultKeys,
   type StoredKey,
 } from "@/lib/store";
 
@@ -61,6 +61,20 @@ export default function KeysPage() {
   const [apiKey, setApiKey] = useState("");
   const [validating, setValidating] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importVaultString, setImportVaultString] = useState("");
+  const [importPassword, setImportPassword] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [proxyHost, setProxyHost] = useState("http://localhost:8787");
+  const [proxyKey, setProxyKey] = useState("");
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setProxyHost(localStorage.getItem("ve_proxy_host") || "http://localhost:8787");
+      setProxyKey(localStorage.getItem("ve_proxy_key") || "");
+    }
+  }, []);
 
   const reload = useCallback(() => setKeys(getKeys()), []);
 
@@ -79,6 +93,30 @@ export default function KeysPage() {
     toast(`${provider} key added`, "success");
   };
 
+  const handleImport = async () => {
+    if (!importVaultString.trim() || !importPassword) return;
+    setImporting(true);
+    try {
+      const { decryptVault } = await import("@vaultedge/core");
+      const decrypted = await decryptVault(importVaultString.trim(), importPassword);
+      if (decrypted.length === 0) {
+        toast("The vault is empty or decrypted key list is invalid", "error");
+        setImporting(false);
+        return;
+      }
+      importVaultKeys(decrypted);
+      setImportVaultString("");
+      setImportPassword("");
+      setShowImportModal(false);
+      reload();
+      toast(`Imported ${decrypted.length} keys successfully!`, "success");
+    } catch (err) {
+      toast("Decryption failed: incorrect password or corrupted vault string", "error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDelete = (id: string, p: string) => {
     removeKey(id);
     reload();
@@ -87,16 +125,58 @@ export default function KeysPage() {
 
   const handleValidate = async (key: StoredKey) => {
     setValidating(key.id);
-    // Simulate validation — in production calls proxy /validate
-    await new Promise((r) => setTimeout(r, 900 + Math.random() * 600));
-    const valid = Math.random() > 0.25;
-    setKeyValid(key.id, valid);
-    reload();
-    setValidating(null);
-    toast(
-      `${key.provider}: ${valid ? "Key is valid ✓" : "Key validation failed"}`,
-      valid ? "success" : "error"
-    );
+    try {
+      const host = localStorage.getItem("ve_proxy_host") || "http://localhost:8787";
+      const sysKey = localStorage.getItem("ve_proxy_key") || "";
+
+      const res = await fetch(`${host}/v1/keys/validate`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${sysKey}`,
+        },
+        body: JSON.stringify({
+          provider: key.provider,
+          key: key.key,
+        }),
+      });
+
+      if (res.status === 401) {
+        toast("Validation unauthorized: Check System Key in top-right settings.", "error");
+        setKeyValid(key.id, false);
+        return;
+      }
+
+      if (!res.ok) {
+        const err = await res.json();
+        const msg = err.error?.message || `HTTP ${res.status}`;
+        toast(`Validation error: ${msg}`, "error");
+        setKeyValid(key.id, false);
+        return;
+      }
+
+      const data = await res.json() as { valid: boolean; message?: string };
+      setKeyValid(key.id, data.valid);
+
+      if (data.valid) {
+        toast(`${key.provider} key validated successfully ✓`, "success");
+      } else {
+        toast(`Validation failed: ${data.message || "Invalid API key"}`, "error");
+      }
+    } catch (err) {
+      toast(`Connection error: ${err instanceof Error ? err.message : String(err)}`, "error");
+      setKeyValid(key.id, false);
+    } finally {
+      reload();
+      setValidating(null);
+    }
+  };
+
+  const handleSaveSettings = () => {
+    localStorage.setItem("ve_proxy_host", proxyHost);
+    localStorage.setItem("ve_proxy_key", proxyKey);
+    setShowSettings(false);
+    toast("Settings saved successfully", "success");
   };
 
   const stats = {
@@ -117,6 +197,12 @@ export default function KeysPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
+          <button className="btn btn-ghost" onClick={() => setShowImportModal(true)}>
+            📥 Import Vault
+          </button>
+          <button className="btn btn-ghost" onClick={() => setShowSettings(true)} title="Proxy Settings">
+            ⚙️ Settings
+          </button>
           <button className="btn btn-primary" onClick={() => setShowModal(true)}>
             <PlusIcon /> Add Key
           </button>
@@ -132,9 +218,14 @@ export default function KeysPage() {
               Keys are stored encrypted in your browser. Never sent to any server.
             </p>
           </div>
-          <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-            <PlusIcon /> Add Key
-          </button>
+          <div className="flex gap-2">
+            <button className="btn btn-ghost" onClick={() => setShowImportModal(true)}>
+              📥 Import Vault
+            </button>
+            <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+              <PlusIcon /> Add Key
+            </button>
+          </div>
         </div>
 
         {/* Stats */}
@@ -274,6 +365,88 @@ export default function KeysPage() {
               </button>
               <button className="btn btn-primary" onClick={handleAdd} disabled={!apiKey.trim()}>
                 <PlusIcon /> Add Key
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showImportModal && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowImportModal(false)}>
+          <div className="modal">
+            <h2 className="modal-title">Import Vault String</h2>
+            <p className="modal-sub">Paste an encrypted vault string (starting with VE_VAULT_v1_) and enter the password to decrypt and import keys.</p>
+
+            <div className="form-group">
+              <label className="form-label">Vault String</label>
+              <textarea
+                className="input"
+                style={{ height: 100, resize: "none", fontFamily: "monospace", fontSize: "0.75rem" }}
+                placeholder="VE_VAULT_v1_..."
+                value={importVaultString}
+                onChange={(e) => setImportVaultString(e.target.value)}
+                autoFocus
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Master Password</label>
+              <input
+                className="input"
+                type="password"
+                placeholder="Enter password used to encrypt vault"
+                value={importPassword}
+                onChange={(e) => setImportPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleImport()}
+              />
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => { setShowImportModal(false); setImportVaultString(""); setImportPassword(""); }}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleImport} disabled={!importVaultString.trim() || !importPassword || importing}>
+                {importing ? "Decrypting..." : "📥 Import Keys"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSettings && (
+        <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setShowSettings(false)}>
+          <div className="modal">
+            <h2 className="modal-title">Proxy Settings</h2>
+            <p className="modal-sub">Configure the local proxy server URL and System Key to enable real key validation.</p>
+
+            <div className="form-group">
+              <label className="form-label">Proxy Host URL</label>
+              <input
+                className="input"
+                placeholder="http://localhost:8787"
+                value={proxyHost}
+                onChange={(e) => setProxyHost(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">System Key (Bearer Token)</label>
+              <input
+                className="input"
+                type="password"
+                placeholder="ve-..."
+                value={proxyKey}
+                onChange={(e) => setProxyKey(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveSettings()}
+              />
+            </div>
+
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowSettings(false)}>
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={handleSaveSettings}>
+                💾 Save Settings
               </button>
             </div>
           </div>

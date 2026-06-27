@@ -6,6 +6,7 @@
 export interface StoredKey {
   id: string;
   provider: string;
+  key: string;
   maskedKey: string;
   addedAt: number;
   isValid: boolean | null;
@@ -50,6 +51,7 @@ export function addKey(provider: string, rawKey: string): StoredKey {
   const entry: StoredKey = {
     id: crypto.randomUUID(),
     provider,
+    key: rawKey,
     maskedKey: masked,
     addedAt: Math.floor(Date.now() / 1000),
     isValid: null,
@@ -64,6 +66,25 @@ export function removeKey(id: string): void {
 
 export function setKeyValid(id: string, valid: boolean): void {
   saveKeys(getKeys().map((k) => k.id === id ? { ...k, isValid: valid } : k));
+}
+
+export function importVaultKeys(entries: { provider: string; key: string }[]): void {
+  const current = getKeys();
+  const added: StoredKey[] = entries.map((entry) => {
+    const rawKey = entry.key;
+    const masked = rawKey.length > 8
+      ? `${rawKey.slice(0, 4)}...${rawKey.slice(-4)}`
+      : "****";
+    return {
+      id: crypto.randomUUID(),
+      provider: entry.provider,
+      key: rawKey,
+      maskedKey: masked,
+      addedAt: Math.floor(Date.now() / 1000),
+      isValid: null,
+    };
+  });
+  saveKeys([...current, ...added]);
 }
 
 // ─── Routing Rules ────────────────────────────────────────────────────────────

@@ -51,6 +51,7 @@ export {
   buildAuthHeader,
   buildProviderHeaders,
   clearProviderCache,
+  validateProviderKey,
 } from "./providers.js";
 
 // Quota & circuit breaker

@@ -299,10 +299,87 @@ export function buildProviderHeaders(
   return headers;
 }
 
-/**
- * Reset loader cache (useful in tests/reloads).
- */
 export function clearProviderCache(): void {
   _cache = null;
   _cacheFile = null;
 }
+
+/**
+ * Perform a real lightweight validation request to the provider's API.
+ * Returns { valid: boolean, message?: string }
+ */
+export async function validateProviderKey(
+  providerName: string,
+  apiKey: string,
+  customProviders?: ProviderDefinition[]
+): Promise<{ valid: boolean; message?: string }> {
+  const p = getProviderByName(providerName, customProviders);
+  if (!p) {
+    return { valid: false, message: `Unknown provider: ${providerName}` };
+  }
+
+  // Determine validation URL and payload
+  let url = p.modelsUrl;
+  let method = "GET";
+  let body: string | undefined = undefined;
+
+  const headers = buildProviderHeaders(p, apiKey);
+
+  if (!url) {
+    // If no modelsUrl, perform a minimal chat completion request
+    url = p.baseUrl;
+    method = "POST";
+    if (p.name === "Anthropic") {
+      body = JSON.stringify({
+        model: "claude-3-haiku-20240307",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "ping" }],
+      });
+    } else {
+      body = JSON.stringify({
+        model: p.staticModels?.[0] || "gpt-4o-mini",
+        max_tokens: 1,
+        messages: [{ role: "user", content: "ping" }],
+      });
+    }
+  }
+
+  try {
+    const res = await fetch(url, {
+      method,
+      headers,
+      body,
+    });
+
+    if (res.status === 200) {
+      return { valid: true };
+    }
+
+    // Anthropic or some providers might return 400 for bad parameters, which still means the key is valid (since they authenticated it)
+    if (res.status === 400 && p.name === "Anthropic") {
+      const text = await res.text();
+      if (text.includes("api_key") || text.includes("authentication")) {
+        return { valid: false, message: `API returned status ${res.status}: ${text}` };
+      }
+      return { valid: true };
+    }
+
+    const text = await res.text();
+    let errMessage = text;
+    try {
+      const json = JSON.parse(text);
+      errMessage = json.error?.message || json.message || text;
+    } catch {}
+
+    return {
+      valid: false,
+      message: `Auth failed (status ${res.status}): ${errMessage.slice(0, 150)}`,
+    };
+  } catch (err) {
+    return {
+      valid: false,
+      message: `Connection error: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
