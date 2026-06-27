@@ -76,7 +76,7 @@ export default function KeysPage() {
     }
   }, []);
 
-  const reload = useCallback(() => setKeys(getKeys()), []);
+  const reload = useCallback(async () => setKeys(await getKeys()), []);
 
   useEffect(() => { reload(); }, [reload]);
 
@@ -84,12 +84,12 @@ export default function KeysPage() {
     k.provider.toLowerCase().includes(search.toLowerCase())
   );
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!apiKey.trim()) return;
-    addKey(provider, apiKey.trim());
+    await addKey(provider, apiKey.trim());
     setApiKey("");
     setShowModal(false);
-    reload();
+    await reload();
     toast(`${provider} key added`, "success");
   };
 
@@ -104,11 +104,11 @@ export default function KeysPage() {
         setImporting(false);
         return;
       }
-      importVaultKeys(decrypted);
+      await importVaultKeys(decrypted);
       setImportVaultString("");
       setImportPassword("");
       setShowImportModal(false);
-      reload();
+      await reload();
       toast(`Imported ${decrypted.length} keys successfully!`, "success");
     } catch (err) {
       toast("Decryption failed: incorrect password or corrupted vault string", "error");
@@ -117,9 +117,9 @@ export default function KeysPage() {
     }
   };
 
-  const handleDelete = (id: string, p: string) => {
-    removeKey(id);
-    reload();
+  const handleDelete = async (id: string, p: string) => {
+    await removeKey(id);
+    await reload();
     toast(`${p} key removed`, "info");
   };
 
@@ -143,7 +143,7 @@ export default function KeysPage() {
 
       if (res.status === 401) {
         toast("Validation unauthorized: Check System Key in top-right settings.", "error");
-        setKeyValid(key.id, false);
+        await setKeyValid(key.id, false);
         return;
       }
 
@@ -151,12 +151,12 @@ export default function KeysPage() {
         const err = await res.json();
         const msg = err.error?.message || `HTTP ${res.status}`;
         toast(`Validation error: ${msg}`, "error");
-        setKeyValid(key.id, false);
+        await setKeyValid(key.id, false);
         return;
       }
 
       const data = await res.json() as { valid: boolean; message?: string };
-      setKeyValid(key.id, data.valid);
+      await setKeyValid(key.id, data.valid);
 
       if (data.valid) {
         toast(`${key.provider} key validated successfully ✓`, "success");
@@ -165,9 +165,9 @@ export default function KeysPage() {
       }
     } catch (err) {
       toast(`Connection error: ${err instanceof Error ? err.message : String(err)}`, "error");
-      setKeyValid(key.id, false);
+      await setKeyValid(key.id, false);
     } finally {
-      reload();
+      await reload();
       setValidating(null);
     }
   };

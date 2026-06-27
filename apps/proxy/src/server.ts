@@ -26,6 +26,9 @@
 
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import {
   decryptVault,
   routeRequest,
@@ -37,8 +40,11 @@ import {
   NoProviderError,
   AllProvidersFailedError,
   validateProviderKey,
+  encryptLocalKey,
+  decryptLocalKey,
+  createStoredKeyEntry,
 } from "@vaultedge/core";
-import type { VaultEntry, ChatCompletionRequest } from "@vaultedge/core";
+import type { VaultEntry, ChatCompletionRequest, StoredKeyEntry, RoutingRule } from "@vaultedge/core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -84,25 +90,86 @@ function addRequestLog(log: Omit<RequestLog, "id" | "timestamp">) {
   }
 }
 
+// ─── Local Disk Vault Setup (Syncs with CLI) ───────────────────────────────────
+
+const DATA_DIR = join(homedir(), ".vaultedge");
+const VAULT_FILE = join(DATA_DIR, "local.vault.json");
+const SECRET_FILE = join(DATA_DIR, ".secret");
+
+function ensureDataDir() {
+  if (!existsSync(DATA_DIR)) {
+    mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+  }
+}
+
+function getOrCreateSecret(): string {
+  ensureDataDir();
+  if (existsSync(SECRET_FILE)) {
+    return readFileSync(SECRET_FILE, "utf-8").trim();
+  }
+  const secret = randomBytes(32).toString("hex");
+  writeFileSync(SECRET_FILE, secret, { mode: 0o600 });
+  return secret;
+}
+
+interface LocalVault {
+  version: 1;
+  entries: StoredKeyEntry[];
+  rules?: RoutingRule[];
+}
+
+function readLocalVault(): LocalVault {
+  if (!existsSync(VAULT_FILE)) {
+    return { version: 1, entries: [] };
+  }
+  try {
+    const raw = readFileSync(VAULT_FILE, "utf-8");
+    return JSON.parse(raw) as LocalVault;
+  } catch {
+    return { version: 1, entries: [] };
+  }
+}
+
+function writeLocalVault(vault: LocalVault) {
+  ensureDataDir();
+  writeFileSync(VAULT_FILE, JSON.stringify(vault, null, 2), { mode: 0o600 });
+}
+
 // ─── Vault Loader ─────────────────────────────────────────────────────────────
 
 async function loadVault(): Promise<void> {
   const vault = process.env.VAULTEDGE_VAULT;
   const password = process.env.VAULTEDGE_PASSWORD;
 
-  if (!vault || !password) {
-    console.warn(
-      "[vaultedge] VAULTEDGE_VAULT and VAULTEDGE_PASSWORD not set. " +
-        "Proxy will start but all requests will fail until keys are provided."
+  if (vault && password) {
+    vaultEntries = await decryptVault(vault, password);
+    const providers = [...new Set(vaultEntries.map((e) => e.provider))];
+    console.log(
+      `[vaultedge] Vault loaded from ENV: ${vaultEntries.length} keys [${providers.join(", ")}]`
     );
     return;
   }
 
-  vaultEntries = await decryptVault(vault, password);
-  const providers = [...new Set(vaultEntries.map((e) => e.provider))];
-  console.log(
-    `[vaultedge] Vault loaded: ${vaultEntries.length} keys [${providers.join(", ")}]`
-  );
+  // Load from local storage file (Syncs with CLI)
+  try {
+    const lv = readLocalVault();
+    const secret = getOrCreateSecret();
+    const entries: VaultEntry[] = [];
+    for (const e of lv.entries) {
+      const plaintext = await decryptLocalKey(e.encryptedKey, secret);
+      entries.push({ provider: e.provider, key: plaintext });
+    }
+    vaultEntries = entries;
+    const providers = [...new Set(vaultEntries.map((e) => e.provider))];
+    console.log(
+      `[vaultedge] Vault loaded from local file (${VAULT_FILE}): ${vaultEntries.length} keys [${providers.join(", ")}]`
+    );
+  } catch (err) {
+    console.warn(
+      "[vaultedge] No ENV vault provided, and failed to load local disk vault file. " +
+        "Please create local keys via CLI or start dashboard to set keys. Error: " + (err instanceof Error ? err.message : String(err))
+    );
+  }
 }
 
 // ─── Request Helpers ──────────────────────────────────────────────────────────
@@ -356,6 +423,146 @@ function handleGetLogs(req: IncomingMessage, res: ServerResponse): void {
   sendJSON(res, 200, requestLogs);
 }
 
+function handleGetKeys(req: IncomingMessage, res: ServerResponse): void {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+  if (process.env.VAULTEDGE_VAULT) {
+    const list = vaultEntries.map((e, idx) => ({
+      id: `env-${idx}`,
+      provider: e.provider,
+      encryptedKey: "",
+      maskedKey: e.key.length > 8 ? `${e.key.slice(0, 4)}...${e.key.slice(-4)}` : "****",
+      addedAt: Math.floor(Date.now() / 1000),
+      isValid: null,
+    }));
+    return sendJSON(res, 200, list);
+  }
+  const lv = readLocalVault();
+  sendJSON(res, 200, lv.entries);
+}
+
+async function handlePostKeys(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+  if (process.env.VAULTEDGE_VAULT) {
+    return sendError(res, 400, "Vault is read-only when loaded from environment variable.", "READ_ONLY");
+  }
+
+  let body: { provider: string; key: string };
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw) as { provider: string; key: string };
+  } catch {
+    return sendError(res, 400, "Invalid JSON body.", "BAD_REQUEST");
+  }
+
+  if (!body.provider || !body.key) {
+    return sendError(res, 400, "Missing required fields: provider, key.", "BAD_REQUEST");
+  }
+
+  try {
+    const secret = getOrCreateSecret();
+    const encryptedKey = await encryptLocalKey(body.key, secret);
+    const masked = body.key.length > 8 ? `${body.key.slice(0, 4)}...${body.key.slice(-4)}` : "****";
+
+    const entry: StoredKeyEntry = {
+      id: randomBytes(16).toString("hex"),
+      provider: body.provider,
+      encryptedKey,
+      maskedKey: masked,
+      addedAt: Math.floor(Date.now() / 1000),
+      isValid: null,
+    };
+
+    const lv = readLocalVault();
+    lv.entries.push(entry);
+    writeLocalVault(lv);
+
+    await loadVault(); // Reload in-memory cache
+
+    sendJSON(res, 200, { success: true, entry });
+  } catch (err) {
+    return sendError(res, 500, `Failed to save key: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function handleDeleteKey(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+  if (process.env.VAULTEDGE_VAULT) {
+    return sendError(res, 400, "Vault is read-only when loaded from environment variable.", "READ_ONLY");
+  }
+
+  let body: { id: string };
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw) as { id: string };
+  } catch {
+    return sendError(res, 400, "Invalid JSON body.", "BAD_REQUEST");
+  }
+
+  if (!body.id) {
+    return sendError(res, 400, "Missing key ID.", "BAD_REQUEST");
+  }
+
+  try {
+    const lv = readLocalVault();
+    const updated = lv.entries.filter((e) => e.id !== body.id);
+    if (updated.length === lv.entries.length) {
+      return sendError(res, 404, "Key ID not found in vault.", "NOT_FOUND");
+    }
+    lv.entries = updated;
+    writeLocalVault(lv);
+
+    await loadVault(); // Reload in-memory cache
+
+    sendJSON(res, 200, { success: true });
+  } catch (err) {
+    return sendError(res, 500, `Failed to delete key: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+function handleGetRules(req: IncomingMessage, res: ServerResponse): void {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+  const lv = readLocalVault();
+  sendJSON(res, 200, lv.rules || []);
+}
+
+async function handlePostRules(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  if (!checkAuth(req)) {
+    return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
+  }
+  if (process.env.VAULTEDGE_VAULT) {
+    return sendError(res, 400, "Routing rules are read-only in env mode.", "READ_ONLY");
+  }
+
+  let body: { rules: RoutingRule[] };
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw) as { rules: RoutingRule[] };
+  } catch {
+    return sendError(res, 400, "Invalid JSON body.", "BAD_REQUEST");
+  }
+
+  if (!Array.isArray(body.rules)) {
+    return sendError(res, 400, "Invalid payload. 'rules' must be an array.", "BAD_REQUEST");
+  }
+
+  try {
+    const lv = readLocalVault();
+    lv.rules = body.rules;
+    writeLocalVault(lv);
+    sendJSON(res, 200, { success: true });
+  } catch (err) {
+    return sendError(res, 500, `Failed to save routing rules: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 // ─── Router ───────────────────────────────────────────────────────────────────
 
 async function handler(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -391,6 +598,21 @@ async function handler(req: IncomingMessage, res: ServerResponse): Promise<void>
   }
   if (req.method === "GET" && url === "/v1/logs") {
     return handleGetLogs(req, res);
+  }
+  if (req.method === "GET" && url === "/v1/keys") {
+    return handleGetKeys(req, res);
+  }
+  if (req.method === "POST" && url === "/v1/keys") {
+    return handlePostKeys(req, res);
+  }
+  if (req.method === "POST" && url === "/v1/keys/delete") {
+    return handleDeleteKey(req, res);
+  }
+  if (req.method === "GET" && url === "/v1/routing/rules") {
+    return handleGetRules(req, res);
+  }
+  if (req.method === "POST" && url === "/v1/routing/rules") {
+    return handlePostRules(req, res);
   }
 
   sendError(res, 404, `Route ${req.method} ${url} not found.`, "NOT_FOUND");

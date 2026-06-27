@@ -19,31 +19,32 @@ export default function RoutingPage() {
   const [newProvider, setNewProvider] = useState(PROVIDERS[0]);
   const [newModel, setNewModel] = useState("");
 
-  const reload = useCallback(() => {
-    setRules(getRules());
-    setAvailableProviders([...new Set(getKeys().map((k) => k.provider))]);
+  const reload = useCallback(async () => {
+    setRules(await getRules());
+    const keys = await getKeys();
+    setAvailableProviders([...new Set(keys.map((k) => k.provider))]);
   }, []);
 
   useEffect(() => { reload(); }, [reload]);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!newModel.trim()) return;
-    addRule(newProvider, newModel.trim());
+    await addRule(newProvider, newModel.trim());
     setNewModel("");
     setShowModal(false);
-    reload();
+    await reload();
     toast(`Rule added: ${newProvider} → ${newModel}`, "success");
   };
 
-  const handleRemove = (id: string) => {
-    removeRule(id);
-    reload();
+  const handleRemove = async (id: string) => {
+    await removeRule(id);
+    await reload();
     toast("Routing rule removed", "info");
   };
 
-  const handleMove = (id: string, dir: "up" | "down") => {
-    moveRule(id, dir);
-    reload();
+  const handleMove = async (id: string, dir: "up" | "down") => {
+    await moveRule(id, dir);
+    await reload();
   };
 
   return (
@@ -106,7 +107,7 @@ export default function RoutingPage() {
               </span>
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() => { saveRules([]); reload(); toast("All rules cleared", "info"); }}
+                onClick={async () => { await saveRules([]); await reload(); toast("All rules cleared", "info"); }}
               >
                 Clear all
               </button>

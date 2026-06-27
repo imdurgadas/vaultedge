@@ -20,7 +20,7 @@ export default function ExportPage() {
       const { encryptVault } = await import("@vaultedge/core");
       // Read keys from localStorage store
       const { getKeys } = await import("@/lib/store");
-      const storedKeys = getKeys();
+      const storedKeys = await getKeys();
 
       if (storedKeys.length === 0) {
         toast("No keys to export. Add some on the Keys page.", "error");
@@ -28,12 +28,10 @@ export default function ExportPage() {
         return;
       }
 
-      // We only have masked keys in the browser store — in the real app
-      // the actual plaintext would come from the proxy's /keys endpoint.
-      // For the demo we show the workflow correctly.
+      // Export actual raw keys
       const entries = storedKeys.map((k) => ({
         provider: k.provider,
-        key: `[ENCRYPTED:${k.maskedKey}]`, // placeholder — real impl uses proxy API
+        key: k.key,
       }));
 
       const result = await encryptVault(entries, password);
