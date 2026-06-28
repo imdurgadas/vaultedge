@@ -1,6 +1,6 @@
 {
   "name": "@durgadas/vaultedge-cli",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "VaultEdge CLI — manage vaults without a desktop app",
   "type": "module",
   "bin": {
@@ -18,7 +18,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@durgadas/vaultedge-core": "^1.0.2",
+    "@durgadas/vaultedge-core": "^1.0.3",
     "commander": "^12.1.0",
     "inquirer": "^9.2.23",
     "chalk": "^5.3.0",
