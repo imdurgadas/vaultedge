@@ -17,7 +17,7 @@ export default function ExportPage() {
 
     // Dynamically import the browser-compatible vault crypto
     try {
-      const { encryptVault } = await import("@vaultedge/core");
+      const { encryptVault } = await import("@durgadas/vaultedge-core");
       // Read keys from localStorage store
       const { getKeys } = await import("@/lib/store");
       const storedKeys = await getKeys();

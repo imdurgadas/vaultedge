@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@vaultedge/core"],
+  transpilePackages: ["@durgadas/vaultedge-core"],
   // Use webpack (not Turbopack) to support yaml-loader
   turbopack: {},
   webpack(config, { isServer }) {

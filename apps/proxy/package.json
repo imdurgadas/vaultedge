@@ -1,5 +1,5 @@
 {
-  "name": "@vaultedge/proxy",
+  "name": "@durgadas/vaultedge-proxy",
   "private": true,
   "version": "1.0.0",
   "description": "VaultEdge standalone HTTP proxy server — Docker-ready",
@@ -11,7 +11,7 @@
     "build": "tsc"
   },
   "dependencies": {
-    "@vaultedge/core": "^1.0.0"
+    "@durgadas/vaultedge-core": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

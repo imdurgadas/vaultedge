@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { decryptLocalKey } from "@vaultedge/core";
+import { decryptLocalKey } from "@durgadas/vaultedge-core";
 
 const DATA_DIR = join(homedir(), ".vaultedge");
 const VAULT_FILE = join(DATA_DIR, "local.vault.json");

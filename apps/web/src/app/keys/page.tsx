@@ -101,7 +101,7 @@ export default function KeysPage() {
     if (!importVaultString.trim() || !importPassword) return;
     setImporting(true);
     try {
-      const { decryptVault } = await import("@vaultedge/core");
+      const { decryptVault } = await import("@durgadas/vaultedge-core");
       const decrypted = await decryptVault(importVaultString.trim(), importPassword);
       if (decrypted.length === 0) {
         toast("The vault is empty or decrypted key list is invalid", "error");

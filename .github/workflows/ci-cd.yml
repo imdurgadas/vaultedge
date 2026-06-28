@@ -62,7 +62,7 @@ jobs:
       - name: Build Packages
         run: npm run build
 
-      - name: Publish @vaultedge/core
+      - name: Publish @durgadas/vaultedge-core
         run: npm publish --workspace=packages/core
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -72,7 +72,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish @vaultedge/cli
+      - name: Publish @durgadas/vaultedge-cli
         run: npm publish --workspace=packages/cli
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -102,7 +102,7 @@ jobs:
           python -m build
 
       - name: Publish to PyPI
-        uses: pypa/github-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: sdks/python/dist/
 

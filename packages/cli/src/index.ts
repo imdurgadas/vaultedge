@@ -31,8 +31,8 @@ import {
   decryptLocalKey,
   loadProviders,
   createStoredKeyEntry,
-} from "@vaultedge/core";
-import type { StoredKeyEntry, VaultEntry } from "@vaultedge/core";
+} from "@durgadas/vaultedge-core";
+import type { StoredKeyEntry, VaultEntry } from "@durgadas/vaultedge-core";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 

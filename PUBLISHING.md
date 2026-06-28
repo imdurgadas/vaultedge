@@ -10,7 +10,7 @@ To enable publishing, make sure to add the following secrets under **Settings > 
 
 | Secret Name | Purpose | How to obtain |
 |---|---|---|
-| `NPM_TOKEN` | Publishing NPM packages (`@vaultedge/core`, `vaultedge-sdk`, `@vaultedge/cli`) | Generate a **Publish** automation token from [npmjs.com](https://www.npmjs.com) |
+| `NPM_TOKEN` | Publishing NPM packages (`@durgadas/vaultedge-core`, `vaultedge-sdk`, `@durgadas/vaultedge-cli`) | Generate a **Publish** automation token from [npmjs.com](https://www.npmjs.com) |
 | `DOCKERHUB_USERNAME` | Logging into Docker Hub for pushing images | Your Docker Hub user ID |
 | `DOCKERHUB_TOKEN` | Authenticating with Docker Hub | Generate a Personal Access Token (PAT) from Docker Hub Account Settings |
 | `DOCKERHUB_REPO` | (Optional) Custom Docker repository name | E.g., `myusername/vaultedge-proxy` (Defaults to `vaultedge/proxy` if omitted) |
@@ -28,8 +28,8 @@ To publish a new version of all packages:
 Update the version number in all configuration manifests:
 - **Root**: `package.json`
 - **Core**: `packages/core/package.json`
-- **SDK**: `packages/sdk/package.json` and change the `@vaultedge/core` dependency if needed.
-- **CLI**: `packages/cli/package.json` and change `@vaultedge/core` dependency.
+- **SDK**: `packages/sdk/package.json` and change the `@durgadas/vaultedge-core` dependency if needed.
+- **CLI**: `packages/cli/package.json` and change `@durgadas/vaultedge-core` dependency.
 - **Proxy**: `apps/proxy/package.json`
 - **Python**: `sdks/python/pyproject.toml` (under `version = "..."` and `__version__` in `vaultedge/__init__.py`)
 - **Go**: Update version tags or comments.

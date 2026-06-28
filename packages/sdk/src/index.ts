@@ -36,7 +36,7 @@ import {
   routeRequest,
   resolveProviderForModel,
   VaultEdgeError,
-} from "@vaultedge/core";
+} from "@durgadas/vaultedge-core";
 
 import type {
   VaultEdgeConfig,
@@ -45,7 +45,7 @@ import type {
   ChatCompletionResponse,
   ChatCompletionChunk,
   RoutingRule,
-} from "@vaultedge/core";
+} from "@durgadas/vaultedge-core";
 
 // ─── Re-exports ───────────────────────────────────────────────────────────────
 
@@ -56,7 +56,7 @@ export type {
   ChatCompletionResponse,
   ChatCompletionChunk,
   RoutingRule,
-} from "@vaultedge/core";
+} from "@durgadas/vaultedge-core";
 
 export {
   VaultEdgeError,
@@ -66,7 +66,7 @@ export {
   AllProvidersFailedError,
   decryptVault,
   encryptVault,
-} from "@vaultedge/core";
+} from "@durgadas/vaultedge-core";
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 

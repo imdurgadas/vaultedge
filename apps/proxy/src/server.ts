@@ -43,8 +43,8 @@ import {
   encryptLocalKey,
   decryptLocalKey,
   createStoredKeyEntry,
-} from "@vaultedge/core";
-import type { VaultEntry, ChatCompletionRequest, StoredKeyEntry, RoutingRule } from "@vaultedge/core";
+} from "@durgadas/vaultedge-core";
+import type { VaultEntry, ChatCompletionRequest, StoredKeyEntry, RoutingRule } from "@durgadas/vaultedge-core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -257,7 +257,7 @@ async function handleChatCompletions(
         "Transfer-Encoding": "chunked",
       });
 
-      const stream = result as AsyncGenerator<import("@vaultedge/core").ChatCompletionChunk>;
+      const stream = result as AsyncGenerator<import("@durgadas/vaultedge-core").ChatCompletionChunk>;
       for await (const chunk of stream) {
         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
       }
@@ -292,7 +292,7 @@ async function handleAnthropicMessages(
     return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
   }
 
-  let body: import("@vaultedge/core").AnthropicRequest;
+  let body: import("@durgadas/vaultedge-core").AnthropicRequest;
   try {
     const raw = await readBody(req);
     body = JSON.parse(raw);
