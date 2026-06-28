@@ -1,7 +1,7 @@
 {
   "name": "vaultedge",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "VaultEdge — Zero-trust AI key manager & proxy",
   "workspaces": [
     "packages/*",
