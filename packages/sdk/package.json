@@ -1,6 +1,6 @@
 {
   "name": "vaultedge-sdk",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "VaultEdge SDK — zero-trust AI key manager for serverless & edge",
   "keywords": [
     "ai",
@@ -29,7 +29,7 @@
     "dist"
   ],
   "dependencies": {
-    "@durgadas/vaultedge-core": "^1.0.5"
+    "@durgadas/vaultedge-core": "^1.0.6"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
