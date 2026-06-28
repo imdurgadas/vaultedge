@@ -1,6 +1,6 @@
 {
   "name": "@durgadas/vaultedge-core",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "VaultEdge core — vault crypto, provider registry, routing engine",
   "type": "module",
   "main": "./dist/index.js",
