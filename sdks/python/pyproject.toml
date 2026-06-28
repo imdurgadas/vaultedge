@@ -7,7 +7,7 @@ name = "vaultedge"
 version = "1.0.1"
 description = "VaultEdge — zero-trust AI key manager SDK for Python"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 keywords = ["ai", "llm", "api-key", "vault", "openai", "security", "proxy"]
 classifiers = [
