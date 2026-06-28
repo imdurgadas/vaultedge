@@ -65,7 +65,7 @@ export default function Shell({ children }: { children: ReactNode }) {
 
         <div className="sidebar-footer">
           <div className="text-xs text-muted" style={{ padding: "0.4rem 0.5rem" }}>
-            v1.0.7 · MIT License
+            v1.0.8 · MIT License
           </div>
         </div>
       </aside>

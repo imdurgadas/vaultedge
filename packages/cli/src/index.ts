@@ -98,7 +98,7 @@ const program = new Command();
 program
   .name("vaultedge")
   .description("VaultEdge — Zero-trust AI key manager")
-  .version("1.0.7");
+  .version("1.0.8");
 
 // ─── vault commands ────────────────────────────────────────────────────────────
 

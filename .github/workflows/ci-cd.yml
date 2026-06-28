@@ -140,7 +140,7 @@ jobs:
           JWT=$(curl -s -H "Content-Type: application/json" \
             -d "{\"username\": \"${{ secrets.DOCKERHUB_USERNAME }}\", \"password\": \"${{ secrets.DOCKERHUB_TOKEN }}\"}" \
             "https://hub.docker.com/v2/users/login" | jq -r .token)
-          curl -s -H "Authorization: JWT $JWT" "https://hub.docker.com/v2/users/"
+          curl -s -H "Authorization: JWT $JWT" "https://hub.docker.com/v2/user"
 
       - name: Extract metadata for Docker
         id: meta
