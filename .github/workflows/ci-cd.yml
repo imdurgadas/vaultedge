@@ -131,7 +131,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKERHUB_REPO || 'durgadas/vaultedge-proxy' }}
+          images: ${{ secrets.DOCKERHUB_REPO || format('{0}/vaultedge-proxy', secrets.DOCKERHUB_USERNAME) }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
