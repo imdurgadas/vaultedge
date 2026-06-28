@@ -127,6 +127,15 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Diagnostic Docker Hub Auth Check
+        run: |
+          REPO="${{ secrets.DOCKERHUB_REPO || format('{0}/vaultedge-proxy', secrets.DOCKERHUB_USERNAME) }}"
+          echo "Diagnosing push access to repository: $REPO"
+          RESPONSE=$(curl -s -u "${{ secrets.DOCKERHUB_USERNAME }}:${{ secrets.DOCKERHUB_TOKEN }}" \
+            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:$REPO:pull,push")
+          echo "Auth Server Response:"
+          echo "$RESPONSE"
+
       - name: Extract metadata for Docker
         id: meta
         uses: docker/metadata-action@v5
