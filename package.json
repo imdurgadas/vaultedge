@@ -8,7 +8,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
+    "build": "npm run build --workspace=packages/core && npm run build --workspaces --if-present",
     "dev:proxy": "npm run dev --workspace=apps/proxy",
     "dev:web": "npm run dev --workspace=apps/web",
     "test": "npm run test --workspaces --if-present"
