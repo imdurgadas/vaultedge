@@ -212,6 +212,22 @@ export interface VaultEdgeConfig {
    * Default: uses the built-in providers.yaml.
    */
   providersFile?: string;
+
+  /** Pre-parsed provider definitions (avoids dynamic file loading in browser/edge) */
+  customProviders?: ProviderDefinition[];
+
+  /**
+   * Routing strategy to use.
+   * "cheapest": Sort providers/keys by lowest cost and substitute cheap model versions if reasoning is not required.
+   * "priority" / "default": Use fallback priority order defined in providers config.
+   */
+  routingStrategy?: "cheapest" | "priority" | "default";
+
+  /** Max retries on the same provider key before switching to fallback. Default: 2 */
+  maxKeyRetries?: number;
+
+  /** Initial delay for exponential backoff retries on the same key in milliseconds. Default: 200 */
+  backoffInitialDelayMs?: number;
 }
 
 // ─── Error Types ──────────────────────────────────────────────────────────────

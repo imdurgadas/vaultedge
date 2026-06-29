@@ -23,8 +23,9 @@ import type {
   AnthropicResponse,
   AnthropicMessage,
   ProviderDefinition,
+  ChatMessage,
 } from "./types.js";
-import { ProviderError, NoProviderError, AllProvidersFailedError } from "./types.js";
+import { ProviderError, NoProviderError, AllProvidersFailedError, VaultEdgeError } from "./types.js";
 import {
   CircuitBreaker,
   QuotaMap,
@@ -42,8 +43,12 @@ export interface RouterConfig {
   debug: boolean;
   routingRules?: RoutingRule[];
   providersFile?: string;
+  customProviders?: ProviderDefinition[];
   circuitBreaker?: CircuitBreaker;
   quotaMap?: QuotaMap;
+  routingStrategy?: "cheapest" | "priority" | "default";
+  maxKeyRetries?: number;
+  backoffInitialDelayMs?: number;
   onAttempt?: (event: {
     provider: string;
     model: string;
@@ -298,6 +303,242 @@ async function sendToProvider(
   return result;
 }
 
+// ─── Smart Router Helpers ──────────────────────────────────────────────────────
+
+export interface CostEntry {
+  cheapCost: number;
+  premiumCost: number;
+  cheapModel: string;
+  premiumModel: string;
+}
+
+export const PROVIDER_COSTS: Record<string, CostEntry> = {
+  OpenAI: { cheapCost: 0.30, premiumCost: 10.00, cheapModel: "gpt-4o-mini", premiumModel: "gpt-4o" },
+  Anthropic: { cheapCost: 1.00, premiumCost: 15.00, cheapModel: "claude-3-5-haiku-latest", premiumModel: "claude-3-5-sonnet-latest" },
+  Gemini: { cheapCost: 0.25, premiumCost: 5.00, cheapModel: "gemini-2.5-flash", premiumModel: "gemini-2.5-pro" },
+  DeepSeek: { cheapCost: 0.20, premiumCost: 2.19, cheapModel: "deepseek-chat", premiumModel: "deepseek-reasoner" },
+  Groq: { cheapCost: 0.10, premiumCost: 0.10, cheapModel: "llama-3.1-8b-instant", premiumModel: "llama-3.3-70b-versatile" },
+  Mistral: { cheapCost: 0.50, premiumCost: 6.00, cheapModel: "mistral-large-latest", premiumModel: "mistral-large-latest" },
+  xAI: { cheapCost: 2.00, premiumCost: 10.00, cheapModel: "grok-2-beta", premiumModel: "grok-2-beta" },
+  Cohere: { cheapCost: 1.00, premiumCost: 5.00, cheapModel: "command", premiumModel: "command" },
+  Cerebras: { cheapCost: 0.10, premiumCost: 0.10, cheapModel: "llama3.1-8b", premiumModel: "llama-3.3-70b" },
+  Sambanova: { cheapCost: 0.15, premiumCost: 0.30, cheapModel: "Meta-Llama-3.1-8B-Instruct", premiumModel: "Meta-Llama-3.3-70B-Instruct" },
+  Cloudflare: { cheapCost: 0.25, premiumCost: 1.00, cheapModel: "@cf/meta/llama-3.1-8b-instruct", premiumModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast" },
+  Github: { cheapCost: 0.0, premiumCost: 0.0, cheapModel: "gpt-4o-mini", premiumModel: "gpt-4o" },
+  Nvidia: { cheapCost: 0.20, premiumCost: 1.00, cheapModel: "nvidia", premiumModel: "nvidia" },
+  Together: { cheapCost: 0.30, premiumCost: 1.00, cheapModel: "together", premiumModel: "together" },
+  Perplexity: { cheapCost: 1.00, premiumCost: 5.00, cheapModel: "sonar", premiumModel: "sonar-reasoning" },
+};
+
+export function isReasoningRequired(messages: ChatMessage[]): boolean {
+  for (const m of messages) {
+    if (!m.content) continue;
+    const contentLower = m.content.toLowerCase();
+    if (
+      contentLower.includes("<think>") ||
+      contentLower.includes("<thought>") ||
+      contentLower.includes("<reasoning>") ||
+      contentLower.includes("reason step-by-step") ||
+      contentLower.includes("chain of thought") ||
+      contentLower.includes("explain your thinking")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function sendToProviderWithRetry(
+  provider: ProviderDefinition,
+  apiKey: string,
+  request: ChatCompletionRequest,
+  model: string,
+  opts: {
+    timeout: number;
+    debug: boolean;
+    quotaMap: QuotaMap;
+    maxKeyRetries: number;
+    backoffInitialDelayMs: number;
+  }
+): Promise<ChatCompletionResponse | AsyncGenerator<ChatCompletionChunk, void, unknown>> {
+  let attempt = 0;
+  const maxAttempts = opts.maxKeyRetries > 0 ? opts.maxKeyRetries : 1;
+
+  while (true) {
+    try {
+      return await sendToProvider(provider, apiKey, request, model, opts);
+    } catch (err) {
+      attempt++;
+      const isRetriable =
+        (err instanceof ProviderError && (
+          err.statusCode === 429 ||
+          (err.statusCode && err.statusCode >= 500) ||
+          err.message.includes("failed") ||
+          err.message.includes("timeout") ||
+          err.message.includes("abort") ||
+          err.message.includes("fetch")
+        )) ||
+        !(err instanceof ProviderError);
+
+      if (attempt >= maxAttempts || !isRetriable) {
+        throw err;
+      }
+
+      const delay = opts.backoffInitialDelayMs * Math.pow(2, attempt - 1);
+      if (opts.debug) {
+        console.error(
+          `[vaultedge] Retry ${attempt}/${maxAttempts - 1} for ${provider.name} in ${delay}ms after error: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
+async function* createRobustStream(
+  request: ChatCompletionRequest,
+  attempts: { provider: ProviderDefinition; model: string; key: string }[],
+  maxAttempts: number,
+  config: RouterConfig,
+  errors: ProviderError[]
+): AsyncGenerator<ChatCompletionChunk, void, unknown> {
+  const cb = config.circuitBreaker ?? globalCircuitBreaker;
+  const qm = config.quotaMap ?? globalQuotaMap;
+  const maxKeyRetries = config.maxKeyRetries ?? 2;
+  const backoffInitialDelayMs = config.backoffInitialDelayMs ?? 200;
+
+  let currentRequest = { ...request };
+  let accumulatedText = "";
+  let attemptIdx = 0;
+  let firstChunkId: string | undefined;
+  let firstChunkModel: string | undefined;
+
+  while (attemptIdx < maxAttempts) {
+    const { provider, model, key } = attempts[attemptIdx];
+    const startTime = Date.now();
+
+    try {
+      // If we are resuming mid-stream, modify the messages of the current request
+      if (accumulatedText.length > 0) {
+        const updatedMessages = [...request.messages];
+        updatedMessages.push({
+          role: "assistant",
+          content: accumulatedText,
+        });
+        currentRequest.messages = updatedMessages;
+        if (config.debug) {
+          console.error(
+            `[vaultedge] Resuming stream mid-generation using ${provider.name} (${model})`
+          );
+        }
+      }
+
+      const result = await sendToProviderWithRetry(provider, key, currentRequest, model, {
+        timeout: config.timeout,
+        debug: config.debug,
+        quotaMap: qm,
+        maxKeyRetries,
+        backoffInitialDelayMs,
+      });
+
+      cb.recordSuccess(key);
+
+      const latencyMs = Date.now() - startTime;
+      config.onAttempt?.({
+        provider: provider.name,
+        model,
+        status: "success",
+        latencyMs,
+      });
+
+      const stream = result as AsyncGenerator<ChatCompletionChunk, void, unknown>;
+
+      try {
+        let hasFinished = false;
+        for await (const chunk of stream) {
+          if (!firstChunkId && chunk.id) firstChunkId = chunk.id;
+          if (!firstChunkModel && chunk.model) firstChunkModel = chunk.model;
+
+          const choice = chunk.choices?.[0];
+          const deltaContent = choice?.delta?.content;
+          if (deltaContent) {
+            accumulatedText += deltaContent;
+          }
+
+          if (choice && choice.finish_reason !== null && choice.finish_reason !== undefined) {
+            hasFinished = true;
+          }
+
+          if (firstChunkId) chunk.id = firstChunkId;
+          if (firstChunkModel) chunk.model = firstChunkModel;
+
+          yield chunk;
+        }
+        if (!hasFinished) {
+          throw new ProviderError("Stream ended prematurely without finish reason", provider.name);
+        }
+        return;
+      } catch (streamError) {
+        const latencyMs = Date.now() - startTime;
+        const provErr =
+          streamError instanceof ProviderError
+            ? streamError
+            : new ProviderError(
+                `Stream failed midway: ${streamError instanceof Error ? streamError.message : String(streamError)}`,
+                provider.name
+              );
+        errors.push(provErr);
+        cb.recordFailure(key, provErr.statusCode === 401);
+
+        config.onAttempt?.({
+          provider: provider.name,
+          model,
+          status: "error",
+          latencyMs,
+          error: provErr.message,
+        });
+
+        if (config.debug) {
+          console.error(
+            `[vaultedge] ✗ Stream from ${provider.name} failed midway after generating ${accumulatedText.length} chars. Error: ${provErr.message}`
+          );
+        }
+
+        attemptIdx++;
+      }
+    } catch (err) {
+      const latencyMs = Date.now() - startTime;
+      const provErr =
+        err instanceof ProviderError
+          ? err
+          : new ProviderError(
+              err instanceof Error ? err.message : String(err),
+              provider.name
+            );
+      errors.push(provErr);
+      cb.recordFailure(key, provErr.statusCode === 401);
+
+      config.onAttempt?.({
+        provider: provider.name,
+        model,
+        status: "error",
+        latencyMs,
+        error: provErr.message,
+      });
+
+      if (config.debug) {
+        console.error(
+          `[vaultedge] ✗ Connection to ${provider.name} failed: ${provErr.message}`
+        );
+      }
+
+      attemptIdx++;
+    }
+  }
+
+  throw new AllProvidersFailedError(request.model, errors);
+}
+
 // ─── Smart Router ─────────────────────────────────────────────────────────────
 
 /**
@@ -309,9 +550,12 @@ export async function routeRequest(
   vaultEntries: VaultEntry[],
   config: RouterConfig
 ): Promise<ChatCompletionResponse | AsyncGenerator<ChatCompletionChunk, void, unknown>> {
-  const providers = loadProviders(config.providersFile);
+  const providers = config.customProviders ?? loadProviders(config.providersFile);
   const cb = config.circuitBreaker ?? globalCircuitBreaker;
   const qm = config.quotaMap ?? globalQuotaMap;
+  const strategy = config.routingStrategy ?? "default";
+  const maxKeyRetries = config.maxKeyRetries ?? 2;
+  const backoffInitialDelayMs = config.backoffInitialDelayMs ?? 200;
 
   // Build a map of provider name → available keys
   const providerKeys = new Map<string, string[]>();
@@ -323,45 +567,77 @@ export async function routeRequest(
   // Build the ordered attempt list
   const attempts: { provider: ProviderDefinition; model: string; key: string }[] = [];
 
-  if (config.routingRules && config.routingRules.length > 0) {
-    // Explicit routing rules mode
-    for (const rule of config.routingRules) {
-      const provDef = providers.find((p) => p.name === rule.provider);
-      if (!provDef) continue;
-      const keys = providerKeys.get(rule.provider) ?? [];
+  if (strategy === "cheapest") {
+    const reasoning = isReasoningRequired(request.messages);
+    const activeProviders = providers.filter((p) => providerKeys.has(p.name));
+
+    const providerAttempts = activeProviders.map((p) => {
+      const costInfo = PROVIDER_COSTS[p.name] ?? {
+        cheapCost: 0.5,
+        premiumCost: 5.0,
+        cheapModel: p.staticModels?.[0] || "gpt-4o-mini",
+        premiumModel: p.staticModels?.[0] || "gpt-4o",
+      };
+      const cost = reasoning ? costInfo.premiumCost : costInfo.cheapCost;
+      const model = reasoning ? costInfo.premiumModel : costInfo.cheapModel;
+      return {
+        provider: p,
+        model,
+        cost,
+      };
+    });
+
+    providerAttempts.sort((a, b) => a.cost - b.cost);
+
+    for (const pa of providerAttempts) {
+      const keys = providerKeys.get(pa.provider.name) ?? [];
       const validKeys = keys.filter((k) => cb.isAvailable(k));
       const sortedKeys = qm.sortKeys(validKeys);
       for (const key of sortedKeys) {
-        attempts.push({ provider: provDef, model: rule.model, key });
+        attempts.push({ provider: pa.provider, model: pa.model, key });
       }
     }
   } else {
-    // Auto-routing mode: detect primary provider from model name, then fallback chain
-    const primaryDef = resolveProviderForModel(request.model, providers);
-    if (!primaryDef) throw new NoProviderError(request.model);
-
-    // Build fallback order: primary first, then by fallbackOrder
-    const ordered = [
-      primaryDef,
-      ...providers.filter((p) => p.name !== primaryDef.name),
-    ];
-
-    for (const provDef of ordered) {
-      const keys = providerKeys.get(provDef.name) ?? [];
-      if (keys.length === 0) continue;
-
-      // For fallback providers, keep the original model name —
-      // if the provider doesn't understand it, it'll 400 and we move on.
-      // Exception: Anthropic always needs an Anthropic model name.
-      let targetModel = request.model;
-      if (provDef.name === "Anthropic" && !request.model.startsWith("claude")) {
-        targetModel = "claude-3-5-sonnet-latest";
+    if (config.routingRules && config.routingRules.length > 0) {
+      // Explicit routing rules mode
+      for (const rule of config.routingRules) {
+        const provDef = providers.find((p) => p.name === rule.provider);
+        if (!provDef) continue;
+        const keys = providerKeys.get(rule.provider) ?? [];
+        const validKeys = keys.filter((k) => cb.isAvailable(k));
+        const sortedKeys = qm.sortKeys(validKeys);
+        for (const key of sortedKeys) {
+          attempts.push({ provider: provDef, model: rule.model, key });
+        }
       }
+    } else {
+      // Auto-routing mode: detect primary provider from model name, then fallback chain
+      const primaryDef = resolveProviderForModel(request.model, providers);
+      if (!primaryDef) throw new NoProviderError(request.model);
 
-      const validKeys = keys.filter((k) => cb.isAvailable(k));
-      const sortedKeys = qm.sortKeys(validKeys);
-      for (const key of sortedKeys) {
-        attempts.push({ provider: provDef, model: targetModel, key });
+      // Build fallback order: primary first, then by fallbackOrder
+      const ordered = [
+        primaryDef,
+        ...providers.filter((p) => p.name !== primaryDef.name),
+      ];
+
+      for (const provDef of ordered) {
+        const keys = providerKeys.get(provDef.name) ?? [];
+        if (keys.length === 0) continue;
+
+        // For fallback providers, keep the original model name —
+        // if the provider doesn't understand it, it'll 400 and we move on.
+        // Exception: Anthropic always needs an Anthropic model name.
+        let targetModel = request.model;
+        if (provDef.name === "Anthropic" && !request.model.startsWith("claude")) {
+          targetModel = "claude-3-5-sonnet-latest";
+        }
+
+        const validKeys = keys.filter((k) => cb.isAvailable(k));
+        const sortedKeys = qm.sortKeys(validKeys);
+        for (const key of sortedKeys) {
+          attempts.push({ provider: provDef, model: targetModel, key });
+        }
       }
     }
   }
@@ -371,15 +647,21 @@ export async function routeRequest(
   const maxAttempts = Math.min(attempts.length, config.maxRetries);
   const errors: ProviderError[] = [];
 
+  if (request.stream) {
+    return createRobustStream(request, attempts, maxAttempts, config, errors);
+  }
+
   for (let i = 0; i < maxAttempts; i++) {
     const { provider, model, key } = attempts[i];
     const startTime = Date.now();
 
     try {
-      const result = await sendToProvider(provider, key, request, model, {
+      const result = await sendToProviderWithRetry(provider, key, request, model, {
         timeout: config.timeout,
         debug: config.debug,
         quotaMap: qm,
+        maxKeyRetries,
+        backoffInitialDelayMs,
       });
       cb.recordSuccess(key);
 

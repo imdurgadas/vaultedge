@@ -44,7 +44,8 @@ import {
   decryptLocalKey,
   createStoredKeyEntry,
 } from "@durgadas/vaultedge-core";
-import type { VaultEntry, ChatCompletionRequest, StoredKeyEntry, RoutingRule } from "@durgadas/vaultedge-core";
+import yaml from "js-yaml";
+import type { VaultEntry, ChatCompletionRequest, StoredKeyEntry, RoutingRule, ProviderDefinition } from "@durgadas/vaultedge-core";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -54,6 +55,22 @@ const DEBUG = process.env.VAULTEDGE_DEBUG === "true";
 const MAX_RETRIES = parseInt(process.env.VAULTEDGE_MAX_RETRIES ?? "3", 10);
 const TIMEOUT = parseInt(process.env.VAULTEDGE_TIMEOUT ?? "60000", 10);
 const PROVIDERS_FILE = process.env.PROVIDERS_FILE;
+let customProviders: ProviderDefinition[] | undefined = undefined;
+if (PROVIDERS_FILE && existsSync(PROVIDERS_FILE)) {
+  try {
+    const raw = readFileSync(PROVIDERS_FILE, "utf-8");
+    const parsed = yaml.load(raw) as { providers: ProviderDefinition[] };
+    if (parsed && Array.isArray(parsed.providers)) {
+      customProviders = parsed.providers;
+      console.log(`[vaultedge] Loaded ${customProviders.length} custom providers from ${PROVIDERS_FILE}`);
+    }
+  } catch (err) {
+    console.error(`[vaultedge] Failed to load custom providers file "${PROVIDERS_FILE}":`, err);
+  }
+}
+const DEFAULT_ROUTING_STRATEGY = (process.env.VAULTEDGE_ROUTING_STRATEGY ?? "default") as "cheapest" | "priority" | "default";
+const DEFAULT_MAX_KEY_RETRIES = parseInt(process.env.VAULTEDGE_MAX_KEY_RETRIES ?? "2", 10);
+const DEFAULT_BACKOFF_DELAY = parseInt(process.env.VAULTEDGE_BACKOFF_DELAY ?? "200", 10);
 
 // ─── System Key ───────────────────────────────────────────────────────────────
 
@@ -141,6 +158,10 @@ async function loadVault(): Promise<void> {
   const vault = process.env.VAULTEDGE_VAULT;
   const password = process.env.VAULTEDGE_PASSWORD;
 
+  if (DEBUG) {
+    console.log(`[vaultedge] loadVault: vault length = ${vault ? vault.length : "undefined"}, password length = ${password ? password.length : "undefined"}`);
+  }
+
   if (vault && password) {
     vaultEntries = await decryptVault(vault, password);
     const providers = [...new Set(vaultEntries.map((e) => e.provider))];
@@ -203,6 +224,38 @@ function checkAuth(req: IncomingMessage): boolean {
   return token === SYSTEM_KEY;
 }
 
+function extractRoutingParams(req: IncomingMessage): {
+  routingStrategy: "cheapest" | "priority" | "default";
+  maxKeyRetries: number;
+  backoffInitialDelayMs: number;
+} {
+  const strategyHeader = req.headers["x-vaultedge-routing-strategy"];
+  const retriesHeader = req.headers["x-vaultedge-max-key-retries"];
+  const delayHeader = req.headers["x-vaultedge-backoff-delay"];
+
+  let routingStrategy = DEFAULT_ROUTING_STRATEGY;
+  if (
+    strategyHeader &&
+    (strategyHeader === "cheapest" || strategyHeader === "priority" || strategyHeader === "default")
+  ) {
+    routingStrategy = strategyHeader as "cheapest" | "priority" | "default";
+  }
+
+  let maxKeyRetries = DEFAULT_MAX_KEY_RETRIES;
+  if (retriesHeader) {
+    const val = parseInt(Array.isArray(retriesHeader) ? retriesHeader[0] : retriesHeader, 10);
+    if (!isNaN(val)) maxKeyRetries = val;
+  }
+
+  let backoffInitialDelayMs = DEFAULT_BACKOFF_DELAY;
+  if (delayHeader) {
+    const val = parseInt(Array.isArray(delayHeader) ? delayHeader[0] : delayHeader, 10);
+    if (!isNaN(val)) backoffInitialDelayMs = val;
+  }
+
+  return { routingStrategy, maxKeyRetries, backoffInitialDelayMs };
+}
+
 // ─── Route Handlers ───────────────────────────────────────────────────────────
 
 async function handleChatCompletions(
@@ -227,6 +280,7 @@ async function handleChatCompletions(
 
   try {
     let attemptCount = 0;
+    const params = extractRoutingParams(req);
     const result = await routeRequest(body, vaultEntries, {
       timeout: TIMEOUT,
       maxRetries: MAX_RETRIES,
@@ -234,6 +288,10 @@ async function handleChatCompletions(
       circuitBreaker,
       quotaMap,
       providersFile: PROVIDERS_FILE,
+      customProviders,
+      routingStrategy: params.routingStrategy,
+      maxKeyRetries: params.maxKeyRetries,
+      backoffInitialDelayMs: params.backoffInitialDelayMs,
       onAttempt: (event) => {
         attemptCount++;
         addRequestLog({
@@ -270,14 +328,23 @@ async function handleChatCompletions(
     sendJSON(res, 200, result);
   } catch (err) {
     if (DEBUG) console.error("[vaultedge] Routing error:", err);
-    if (err instanceof NoProviderError) {
-      return sendError(res, 400, err.message, err.code);
+    if (
+      err instanceof Error &&
+      (err.name === "NoProviderError" || (err as any).code === "NO_PROVIDER")
+    ) {
+      return sendError(res, 400, err.message, (err as any).code);
     }
-    if (err instanceof AllProvidersFailedError) {
-      return sendError(res, 502, err.message, err.code);
+    if (
+      err instanceof Error &&
+      (err.name === "AllProvidersFailedError" || (err as any).code === "ALL_PROVIDERS_FAILED")
+    ) {
+      return sendError(res, 502, err.message, (err as any).code);
     }
-    if (err instanceof VaultEdgeError) {
-      return sendError(res, 500, err.message, err.code);
+    if (
+      err instanceof Error &&
+      (err.name === "VaultEdgeError" || (err as any).code)
+    ) {
+      return sendError(res, 500, err.message, (err as any).code);
     }
     return sendError(res, 500, "Internal server error.");
   }
@@ -316,6 +383,7 @@ async function handleAnthropicMessages(
 
   // Force route to Anthropic provider
   try {
+    const params = extractRoutingParams(req);
     const result = await routeRequest(openAIReq, vaultEntries, {
       timeout: TIMEOUT,
       maxRetries: 1, // Don't fallback on Anthropic-native endpoint
@@ -324,6 +392,9 @@ async function handleAnthropicMessages(
       circuitBreaker,
       quotaMap,
       providersFile: PROVIDERS_FILE,
+      customProviders,
+      maxKeyRetries: params.maxKeyRetries,
+      backoffInitialDelayMs: params.backoffInitialDelayMs,
     });
     sendJSON(res, 200, result);
   } catch (err) {
@@ -336,7 +407,7 @@ async function handleModels(req: IncomingMessage, res: ServerResponse): Promise<
     return sendError(res, 401, "Unauthorized.", "UNAUTHORIZED");
   }
 
-  const providers = loadProviders(PROVIDERS_FILE);
+  const providers = customProviders ?? loadProviders(PROVIDERS_FILE);
   const availableProviders = new Set(vaultEntries.map((e) => e.provider));
   const models: { id: string; object: "model"; owned_by: string }[] = [];
 
