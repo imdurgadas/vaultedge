@@ -22,6 +22,24 @@ VaultEdge is a **contributor-friendly, language-agnostic** AI API key manager an
 
 ---
 
+## ✨ Advanced Resiliency & Smart Cost-Routing (Market Benefits)
+
+Unlike general LLM router/gateways in the market (e.g., OpenRouter, Portkey, LiteLLM) that only offer basic fallback on hard failures or static routing rules, VaultEdge includes dynamic features engineered to drastically lower LLM operation costs and maximize service uptime:
+
+### 1. Dynamic "Cheapest-First" Routing
+*   **What it does**: Dynamically intercepts incoming LLM prompt messages to inspect them for reasoning keywords or formatting tags (such as `<think>`, `<thought>`, `<reasoning>`, "reason step-by-step").
+*   **Cost Optimization**: If no reasoning is required, VaultEdge automatically substitutes expensive premium models (like `gpt-4o`, `claude-3-5-sonnet`) with low-cost alternatives (like `gemini-2.5-flash`, `gpt-4o-mini`) from your active providers. It only falls back to a premium model when complex reasoning is explicitly requested. This can save up to **90%+ of API call costs** without impacting application intelligence.
+
+### 2. Automatic Retries with Exponential Backoff
+*   **What it does**: On encountering retriable failures (e.g., 429 Rate Limits, 5xx server issues, or connection timeouts), VaultEdge performs rapid, backed-off retries on the current provider key before transitioning to fallback providers.
+*   **Benefit**: Avoids prematurely exhausting backup key quotas or jumping to a more expensive secondary provider over a momentary rate limit glitch. Non-retriable errors (like 400 Bad Request, 401 Unauthorized) immediately trigger provider fallback.
+
+### 3. Transparent Mid-Stream Failover
+*   **What it does**: If a token completion stream drops or fails midway during a generation, VaultEdge buffers the yielded tokens, catches the exception, and queries a secondary provider with the accumulated text appended as assistant history context.
+*   **Benefit**: The generation resumes seamlessly. The client receives a single, uninterrupted token stream with consistent model and chunk identifiers, hiding the mid-stream failure completely.
+
+---
+
 ## 🛠️ How It Works: The Security Architecture
 
 VaultEdge operates on a client-side encryption model utilizing standard Web Crypto APIs:
@@ -118,6 +136,23 @@ npm run dev:proxy
 ```
 
 *The proxy server will print a **System Key** to the console on startup. Use this System Key as your bearer token when calling the proxy.*
+
+### ⚙️ Proxy Configuration & Headers
+
+You can configure the advanced routing behavior globally using environment variables or customize it per-request using HTTP headers:
+
+#### Environment Variables
+| Environment Variable | Description | Default |
+| :--- | :--- | :--- |
+| `VAULTEDGE_ROUTING_STRATEGY` | Routing strategy (`cheapest` or `default`) | `default` |
+| `VAULTEDGE_MAX_KEY_RETRIES` | Max key retries before switching provider | `2` |
+| `VAULTEDGE_BACKOFF_DELAY` | Initial delay for exponential backoff in milliseconds | `200` |
+
+#### Request-Specific Headers
+Override the global server configuration per-request by sending these headers:
+*   `X-VaultEdge-Routing-Strategy`: Set to `cheapest` to route dynamically by cost.
+*   `X-VaultEdge-Max-Key-Retries`: Number of retries on rate limits/server issues (e.g., `3`).
+*   `X-VaultEdge-Backoff-Delay`: Initial backoff delay in ms (e.g., `100`).
 
 ---
 
